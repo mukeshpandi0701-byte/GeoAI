@@ -6,25 +6,33 @@ async function readResponse(response) {
   throw new Error(payload.detail || `Request failed with status ${response.status}.`);
 }
 
+async function request(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch {
+    throw new Error('Could not reach the backend. Start it and check VITE_API_URL.');
+  }
+}
+
 export async function uploadDroneImage(file, projectName, projectId = '') {
   const body = new FormData();
   body.append('file', file);
   body.append('project_name', projectName);
   if (projectId) body.append('project_id', projectId);
-  const response = await fetch(`${API_URL}/api/uploads/drone-image`, { method: 'POST', body });
+  const response = await request(`${API_URL}/api/uploads/drone-image`, { method: 'POST', body });
   return readResponse(response);
 }
 
 export async function getUploadStatus(jobId) {
-  return readResponse(await fetch(`${API_URL}/api/uploads/${jobId}`));
+  return readResponse(await request(`${API_URL}/api/uploads/${jobId}`));
 }
 
 export async function getProjects() {
-  return readResponse(await fetch(`${API_URL}/api/projects`));
+  return readResponse(await request(`${API_URL}/api/projects`));
 }
 
 export async function createProject(project) {
-  return readResponse(await fetch(`${API_URL}/api/projects`, {
+  return readResponse(await request(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(project),
@@ -32,16 +40,16 @@ export async function createProject(project) {
 }
 
 export async function getReviewQueue(status = 'review') {
-  return readResponse(await fetch(`${API_URL}/api/review-queue?status=${status}`));
+  return readResponse(await request(`${API_URL}/api/review-queue?status=${status}`));
 }
 
 export async function updateReviewStatus(jobId, decision) {
-  return readResponse(await fetch(
+  return readResponse(await request(
     `${API_URL}/api/review-queue/${jobId}?decision=${decision}`,
     { method: 'PATCH' },
   ));
 }
 
 export async function getProjectUploads(projectId) {
-  return readResponse(await fetch(`${API_URL}/api/projects/${projectId}/uploads`));
+  return readResponse(await request(`${API_URL}/api/projects/${projectId}/uploads`));
 }

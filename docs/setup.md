@@ -10,6 +10,8 @@ npm run dev
 
 Open the address Vite prints (normally `http://localhost:5173`). The User Portal is the default view; use the header selector to enter the Admin Portal. The Admin Portal uses `VITE_API_URL` for the backend base URL and defaults to `http://localhost:8000`. To override it, add `frontend/.env.local` containing `VITE_API_URL=http://localhost:8000` before starting Vite.
 
+Start the backend before using Admin Portal uploads, project creation, or the review queue. The UI validates empty project names, missing image files, and unsupported image extensions before sending a request. Server validation errors are displayed in the form.
+
 ## Backend
 
 ```powershell
@@ -44,3 +46,9 @@ pytest
 ```
 
 AI and GIS processing remain mock placeholder calls. Queued uploads remain queued until a future worker updates them. SQLite is intended only for local development; database files are not committed. There is still no model, GIS system, PostGIS geometry, authentication, or job worker.
+
+## Frontend troubleshooting
+
+- **“Could not reach the backend”**: Start the backend from `D:\parcelmap\backend`, then verify that `VITE_API_URL` matches its host and port. Restart Vite after changing `.env.local`.
+- **Upload validation message**: Choose a JPG, PNG, GIF, WEBP, or TIFF file and enter a project name before submitting.
+- **No projects or review items appear**: Confirm the backend is running and that the frontend points at the same `DATABASE_URL`-backed backend instance.

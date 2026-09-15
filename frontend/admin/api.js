@@ -6,10 +6,11 @@ async function readResponse(response) {
   throw new Error(payload.detail || `Request failed with status ${response.status}.`);
 }
 
-export async function uploadDroneImage(file, projectName) {
+export async function uploadDroneImage(file, projectName, projectId = '') {
   const body = new FormData();
   body.append('file', file);
   body.append('project_name', projectName);
+  if (projectId) body.append('project_id', projectId);
   const response = await fetch(`${API_URL}/api/uploads/drone-image`, { method: 'POST', body });
   return readResponse(response);
 }
@@ -28,4 +29,19 @@ export async function createProject(project) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(project),
   }));
+}
+
+export async function getReviewQueue(status = 'review') {
+  return readResponse(await fetch(`${API_URL}/api/review-queue?status=${status}`));
+}
+
+export async function updateReviewStatus(jobId, decision) {
+  return readResponse(await fetch(
+    `${API_URL}/api/review-queue/${jobId}?decision=${decision}`,
+    { method: 'PATCH' },
+  ));
+}
+
+export async function getProjectUploads(projectId) {
+  return readResponse(await fetch(`${API_URL}/api/projects/${projectId}/uploads`));
 }

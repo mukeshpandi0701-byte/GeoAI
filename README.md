@@ -10,7 +10,7 @@ A beginner-friendly foundation for an urban cadastral mapping application. It de
 
 ## Current scope and limitations
 
-The frontend map, parcels, and processing metrics are mock data. The Admin Portal connects to the FastAPI API for upload jobs and projects. The backend saves validated uploads locally under `backend/storage/uploads/` and persists job/project metadata in SQLite. AI extraction and GIS preparation are separated placeholder services; they do not perform real processing. There is no PostGIS geometry, authentication, authorization, or background job worker yet.
+The frontend map, parcels, and processing metrics are mock data. The Admin Portal connects to the FastAPI API for upload jobs and projects. Uploads may be linked to a project and move through `queued`, `processing`, `review`, and `approved` or `rejected` states. The backend saves validated uploads locally under `backend/storage/uploads/` and persists job/project metadata in SQLite. AI extraction and GIS preparation are separated placeholder services; they do not perform real processing. There is no PostGIS geometry, authentication, authorization, or background job worker yet.
 
 ## Local setup
 

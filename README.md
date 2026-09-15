@@ -5,12 +5,12 @@ A beginner-friendly foundation for an urban cadastral mapping application. It de
 ## Project structure
 
 - `frontend/` — React + Vite prototype with User and Admin portal views and shared mock map data.
-- `backend/` — FastAPI API for health checks and safely storing image uploads with in-memory job status records.
+- `backend/` — FastAPI API with SQLite-backed projects and upload metadata, plus local image storage.
 - `docs/` — local setup instructions and the planned architecture.
 
 ## Current scope and limitations
 
-The frontend map, parcels, projects, and processing metrics are mock data. The backend saves validated uploads locally under `backend/storage/uploads/` and keeps job metadata only in memory, so job records disappear when the server restarts. AI extraction and GIS preparation are separated placeholder services; they do not perform real processing. There is no database, PostGIS, authentication, authorization, or background job worker yet.
+The frontend map, parcels, and processing metrics are mock data. The Admin Portal connects to the FastAPI API for upload jobs and projects. The backend saves validated uploads locally under `backend/storage/uploads/` and persists job/project metadata in SQLite. AI extraction and GIS preparation are separated placeholder services; they do not perform real processing. There is no PostGIS geometry, authentication, authorization, or background job worker yet.
 
 ## Local setup
 
@@ -22,6 +22,12 @@ npm install
 npm run dev
 ```
 
+The frontend defaults to `http://localhost:8000`. To use another API address, create `frontend/.env.local` with:
+
+```text
+VITE_API_URL=http://localhost:8000
+```
+
 Backend:
 
 ```powershell
@@ -31,6 +37,14 @@ python -m venv .venv
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+
+SQLite is the default development database. Tables are created automatically when the backend starts, and the default database file is `backend/storage/parcelmap.db`. To use another SQLite file or prepare for a future PostgreSQL deployment, set `DATABASE_URL` before starting the backend:
+
+```powershell
+$env:DATABASE_URL = "sqlite:///D:/parcelmap/backend/storage/parcelmap.db"
+```
+
+PostgreSQL and PostGIS connection URLs are not configured or required in this phase; the SQLAlchemy session layer is the future integration point.
 
 For backend tests, install the test requirements and run pytest:
 

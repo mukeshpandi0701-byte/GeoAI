@@ -15,6 +15,7 @@ venv/
 .npm-cache/
 backend/storage/uploads/*
 !backend/storage/uploads/.gitkeep
+backend/storage/*.db
 
 # IDE and operating system files
 .vscode/

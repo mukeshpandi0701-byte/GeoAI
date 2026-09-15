@@ -1,1 +1,1 @@
-"""Reserved for Pydantic schemas and future SQLAlchemy/PostGIS models."""
+"""Pydantic schemas and future SQLAlchemy/PostGIS models."""

@@ -7,11 +7,13 @@ const [projectName, setProjectName] = useState('');
 const [selectedProjectId, setSelectedProjectId] = useState('');
   const [file, setFile] = useState(null);
   const [upload, setUpload] = useState(null);
-  const [uploadError, setUploadError] = useState('');
+const [uploadError, setUploadError] = useState('');
+const [uploadFieldError, setUploadFieldError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [apiProjects, setApiProjects] = useState([]);
   const [projectForm, setProjectForm] = useState({ name: '', description: '', location: '' });
-  const [projectMessage, setProjectMessage] = useState('');
+const [projectMessage, setProjectMessage] = useState('');
+const [creatingProject, setCreatingProject] = useState(false);
 const [reviewQueue, setReviewQueue] = useState([]);
 const [reviewedItems, setReviewedItems] = useState([]);
 const [reviewOpen, setReviewOpen] = useState(false);
@@ -98,9 +100,22 @@ const handleReviewDecision = async (jobId, decision) => {
 
   async function submit(event) {
     event.preventDefault();
-    if (!file || !projectName) return setUploadError('Add a project name and drone image first.');
+    const supportedFile = file && /\.(jpe?g|png|gif|webp|tiff?)$/i.test(file.name);
+    if (!projectName.trim()) {
+      setUploadFieldError('Enter a project name before uploading imagery.');
+      return;
+    }
+    if (!file) {
+      setUploadFieldError('Choose an image file before uploading.');
+      return;
+    }
+    if (!supportedFile) {
+      setUploadFieldError('Choose a JPG, PNG, GIF, WEBP, or TIFF image file.');
+      return;
+    }
     setUploading(true);
     setUploadError('');
+    setUploadFieldError('');
     setUpload(null);
     try {
       const result = await uploadDroneImage(file, projectName, selectedProjectId);
@@ -119,6 +134,11 @@ const handleReviewDecision = async (jobId, decision) => {
   async function submitProject(event) {
     event.preventDefault();
     setProjectMessage('');
+    if (!projectForm.name.trim()) {
+      setProjectMessage('Enter a project name before creating a project.');
+      return;
+    }
+    setCreatingProject(true);
     try {
       const project = await createProject(projectForm);
       setApiProjects(current => [project, ...current]);
@@ -126,11 +146,13 @@ const handleReviewDecision = async (jobId, decision) => {
       setProjectMessage(`Created ${project.project_name}.`);
     } catch (error) {
       setProjectMessage(error.message);
+    } finally {
+      setCreatingProject(false);
     }
   }
 
   return <section><div className="portal-heading"><div><span className="eyebrow">Administration workspace</span><h2>Mapping projects</h2><p>Upload imagery, monitor mock processing, and review extracted cadastral features.</p></div></div>
-    <div className="admin-grid"><form className="panel upload-panel" onSubmit={submit}><h3>New imagery upload</h3><label>Project name<input value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. East Ward Survey" /></label><label>Link to project<select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}><option value="">No linked project</option>{apiProjects.map(project => <option key={project.project_id} value={project.project_id}>{project.project_name}</option>)}</select></label><label>Drone image<input type="file" accept="image/*,.tif,.tiff" onChange={e => setFile(e.target.files[0])} /></label><button className="primary" disabled={uploading}>{uploading ? 'Uploading image…' : 'Upload image'}</button>{uploadError && <p className="notice">{uploadError}</p>}{upload && <div className="notice upload-result"><strong>Upload {upload.status}</strong><span>Job ID: {upload.job_id}</span><span>File: {upload.filename} · {upload.size} bytes</span><span>Status: {upload.status}</span>{upload.project_id && <span>Linked project: {upload.project_id}</span>}</div>}</form>
+    <div className="admin-grid"><form className="panel upload-panel" onSubmit={submit}><h3>New imagery upload</h3><label>Project name<input value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. East Ward Survey" aria-invalid={Boolean(uploadFieldError)} /></label><label>Link to project<select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}><option value="">No linked project</option>{apiProjects.map(project => <option key={project.project_id} value={project.project_id}>{project.project_name}</option>)}</select></label><label>Drone image<input type="file" accept="image/*,.tif,.tiff" onChange={e => setFile(e.target.files[0])} aria-invalid={Boolean(uploadFieldError)} /></label><button className="primary" disabled={uploading}>{uploading ? 'Uploading image…' : 'Upload image'}</button>{uploadFieldError && <p className="notice" role="alert">{uploadFieldError}</p>}{uploadError && <p className="notice" role="alert">{uploadError}</p>}{upload && <div className="notice upload-result"><strong>Upload {upload.status}</strong><span>Job ID: {upload.job_id}</span><span>File: {upload.filename} · {upload.size} bytes</span><span>Status: {upload.status}</span>{upload.project_id && <span>Linked project: {upload.project_id}</span>}</div>}</form>
       <aside className="panel"><h3>Feature review</h3>{reviewFeatures.map(feature => (
   <div className="metric" key={feature.type}>
     <span>{feature.type}</span>
@@ -256,6 +278,6 @@ const handleReviewDecision = async (jobId, decision) => {
     </div>
   </div>
 )}
-    <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary">Create project</button>{projectMessage && <p className="notice">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
+    <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" aria-invalid={projectMessage.startsWith('Enter a project name')} /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary" disabled={creatingProject}>{creatingProject ? 'Creating project…' : 'Create project'}</button>{projectMessage && <p className="notice" role="alert">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
   </section>;
 }

@@ -9,3 +9,7 @@ The FastAPI backend exposes upload endpoints plus `POST /api/projects`, `GET /ap
 `Drone upload → project/job record → AI feature extraction → GIS transformation → PostGIS → published map API → User Portal`
 
 SQLite stores project records and upload metadata today; local uploaded files remain development-only. When ready, configure PostgreSQL with the PostGIS extension, add migrations, then introduce geometry-aware models and repositories behind the existing database session and service layers. Store imagery externally (object storage) and retain only a URI plus metadata in the database.
+
+## GIS foundation
+
+`backend/app/gis/geometry.py` provides a small GeoJSON-compatible foundation for mapped physical features: buildings, roads, and indicative parcels. It validates `Point`, `LineString`, and `Polygon` geometry and deliberately does not model ownership, official cadastral boundaries, or legal land validation. Those require authoritative land records and authorized human review.

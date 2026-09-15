@@ -1,0 +1,24 @@
+# Node.js
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+.venv/
+venv/
+
+# Local configuration and uploaded imagery
+.env
+.npm-cache/
+backend/storage/uploads/*
+!backend/storage/uploads/.gitkeep
+
+# IDE and operating system files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

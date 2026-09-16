@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
+<<<<<<< Updated upstream
 import { projects, features } from '../shared/mockData';
 import { createProject, getProjectFeatures, getProjectUploads, getProjects, getReviewQueue, getUploadStatus, updateFeatureReview, updateReviewStatus, uploadDroneImage } from './api';
+=======
+import { projects } from '../shared/mockData';
+import MapCanvas from '../shared/MapCanvas';
+import { createProject, getGISFeatures, getProjectFeatures, getProjects, getReviewQueue, getUploadStatus, reviewGISFeature, updateReviewStatus, uploadDroneImage } from './api';
+>>>>>>> Stashed changes
 
 export default function AdminPortal() {
 const [projectName, setProjectName] = useState('');
@@ -19,6 +25,7 @@ const [reviewedItems, setReviewedItems] = useState([]);
 const [reviewOpen, setReviewOpen] = useState(false);
 const [reviewLoading, setReviewLoading] = useState(false);
 const [reviewError, setReviewError] = useState('');
+<<<<<<< Updated upstream
 const [reviewFeatures, setReviewFeatures] = useState(features);
 const [detailProjectId, setDetailProjectId] = useState('');
 const [detailUploads, setDetailUploads] = useState([]);
@@ -26,6 +33,16 @@ const [gisFeatures, setGisFeatures] = useState([]);
 const [detailLoading, setDetailLoading] = useState(false);
 const [detailError, setDetailError] = useState('');
 const [featureNotes, setFeatureNotes] = useState({});
+=======
+const [featureSummary, setFeatureSummary] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+const [featureReviewOpen, setFeatureReviewOpen] = useState(false);
+const [featureReviewProjectId, setFeatureReviewProjectId] = useState('');
+const [featureRecords, setFeatureRecords] = useState([]);
+const [selectedFeature, setSelectedFeature] = useState(null);
+const [featureReviewLoading, setFeatureReviewLoading] = useState(false);
+const [featureReviewError, setFeatureReviewError] = useState('');
+const [featureDecisionLoading, setFeatureDecisionLoading] = useState(false);
+>>>>>>> Stashed changes
   const displayedProjects = apiProjects.length ? apiProjects : projects;
 const handleOpenReviewQueue = async () => {
   setReviewOpen(true);
@@ -62,20 +79,6 @@ const handleReviewDecision = async (jobId, decision) => {
     );
     setReviewedItems(currentItems => [updatedJob, ...currentItems]);
 
-    if (decision === 'approved') {
-      setReviewFeatures(currentFeatures =>
-        currentFeatures.map(feature => {
-          if (feature.type === 'Parcel boundaries') {
-            return {
-              ...feature,
-              count: feature.count + 1,
-            };
-          }
-
-          return feature;
-        })
-      );
-    }
   } catch (error) {
     console.error('Review decision error:', error);
     setReviewError(error.message);
@@ -83,13 +86,73 @@ const handleReviewDecision = async (jobId, decision) => {
 };
   async function loadProjects() {
     try {
-      setApiProjects(await getProjects());
+      const loadedProjects = await getProjects();
+      setApiProjects(loadedProjects);
+      setFeatureReviewProjectId(current => current || loadedProjects[0]?.project_id || '');
     } catch {
       setProjectMessage('Could not load live projects. Showing the sample project list.');
     }
   }
 
-  useEffect(() => { loadProjects(); }, []);
+  async function loadFeatureSummary() {
+    try {
+      const records = await getGISFeatures();
+      setFeatureSummary({
+        total: records.length,
+        pending: records.filter(feature => feature.review_status === 'pending').length,
+        approved: records.filter(feature => feature.review_status === 'approved').length,
+        rejected: records.filter(feature => feature.review_status === 'rejected').length,
+      });
+    } catch (error) {
+      setFeatureReviewError(`Could not load GIS feature counts: ${error.message}`);
+    }
+  }
+
+  async function loadProjectFeatures(projectId) {
+    if (!projectId) {
+      setFeatureRecords([]);
+      return;
+    }
+    setFeatureReviewLoading(true);
+    setFeatureReviewError('');
+    setSelectedFeature(null);
+    try {
+      setFeatureRecords(await getProjectFeatures(projectId));
+    } catch (error) {
+      setFeatureReviewError(`Could not load project GIS features: ${error.message}`);
+    } finally {
+      setFeatureReviewLoading(false);
+    }
+  }
+
+  const openFeatureReview = async () => {
+    const projectId = featureReviewProjectId || apiProjects[0]?.project_id;
+    setFeatureReviewOpen(true);
+    if (!projectId) {
+      setFeatureReviewError('Create or load a project before reviewing GIS features.');
+      return;
+    }
+    setFeatureReviewProjectId(projectId);
+    await loadProjectFeatures(projectId);
+  };
+
+  const updateFeatureReview = async decision => {
+    if (!selectedFeature) return;
+    setFeatureDecisionLoading(true);
+    setFeatureReviewError('');
+    try {
+      const updated = await reviewGISFeature(selectedFeature.id, decision);
+      setFeatureRecords(current => current.map(feature => feature.id === updated.id ? updated : feature));
+      setSelectedFeature(updated);
+      await loadFeatureSummary();
+    } catch (error) {
+      setFeatureReviewError(`Could not ${decision} this GIS feature: ${error.message}`);
+    } finally {
+      setFeatureDecisionLoading(false);
+    }
+  };
+
+  useEffect(() => { loadProjects(); loadFeatureSummary(); }, []);
 
   useEffect(() => {
     if (!detailProjectId) return undefined;
@@ -177,14 +240,7 @@ const handleReviewDecision = async (jobId, decision) => {
 
   return <section><div className="portal-heading"><div><span className="eyebrow">Administration workspace</span><h2>Mapping projects</h2><p>Upload imagery, monitor mock processing, and review extracted cadastral features.</p></div></div>
     <div className="admin-grid"><form className="panel upload-panel" onSubmit={submit}><h3>New imagery upload</h3><label>Project name<input value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. East Ward Survey" aria-invalid={Boolean(uploadFieldError)} /></label><label>Link to project<select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}><option value="">No linked project</option>{apiProjects.map(project => <option key={project.project_id} value={project.project_id}>{project.project_name}</option>)}</select></label><label>Drone image<input type="file" accept="image/*,.tif,.tiff" onChange={e => setFile(e.target.files[0])} aria-invalid={Boolean(uploadFieldError)} /></label><button className="primary" disabled={uploading}>{uploading ? 'Uploading image…' : 'Upload image'}</button>{uploadFieldError && <p className="notice" role="alert">{uploadFieldError}</p>}{uploadError && <p className="notice" role="alert">{uploadError}</p>}{upload && <div className="notice upload-result"><strong>Upload {upload.status}</strong><span>Job ID: {upload.job_id}</span><span>File: {upload.filename} · {upload.size} bytes</span><span>Status: {upload.status}</span>{upload.project_id && <span>Linked project: {upload.project_id}</span>}</div>}</form>
-      <aside className="panel"><h3>Feature review</h3>{reviewFeatures.map(feature => (
-  <div className="metric" key={feature.type}>
-    <span>{feature.type}</span>
-    <strong>{feature.count}</strong>
-  </div>
-))}<button type="button" onClick={handleOpenReviewQueue}>
-  Open review queue
-</button></aside></div>
+      <aside className="panel"><h3>Feature review</h3>{[['Total features', featureSummary.total], ['Pending review', featureSummary.pending], ['Approved', featureSummary.approved], ['Rejected', featureSummary.rejected]].map(([label, count]) => (<div className="metric" key={label}><span>{label}</span><strong>{count}</strong></div>))}<button type="button" onClick={openFeatureReview}>Open feature review</button><button type="button" onClick={handleOpenReviewQueue}>Open upload review queue</button></aside></div>
     {reviewOpen && (
   <div className="review-overlay">
     <div className="review-modal">
@@ -302,6 +358,7 @@ const handleReviewDecision = async (jobId, decision) => {
     </div>
   </div>
 )}
+<<<<<<< Updated upstream
 
     <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary">Create project</button>{projectMessage && <p className="notice">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
 
@@ -310,6 +367,18 @@ const handleReviewDecision = async (jobId, decision) => {
 =======
 </section>;
 =======
+=======
+    {featureReviewOpen && (
+      <div className="review-overlay">
+        <div className="review-modal feature-review-modal">
+          <div className="review-modal-header"><div><span className="eyebrow">GIS feature review</span><h2>Review extracted features</h2><p>Select a persisted feature on the map to approve or reject it.</p></div><button type="button" className="close-button" onClick={() => setFeatureReviewOpen(false)}>✕</button></div>
+          <label className="feature-project-select">Project<select value={featureReviewProjectId} onChange={event => { setFeatureReviewProjectId(event.target.value); loadProjectFeatures(event.target.value); }}><option value="">Select a project</option>{apiProjects.map(project => <option key={project.project_id} value={project.project_id}>{project.project_name}</option>)}</select></label>
+          {featureReviewError && <p className="notice" role="alert">{featureReviewError}</p>}
+          {featureReviewLoading ? <p className="notice">Loading GIS features…</p> : <div className="feature-review-layout"><MapCanvas layers={{ imagery: true, parcels: true, buildings: true, roads: true }} features={featureRecords} projectName={apiProjects.find(project => project.project_id === featureReviewProjectId)?.project_name} onFeatureSelect={setSelectedFeature} /><aside className="panel feature-review-details">{selectedFeature ? <><span className={`status feature-status-${selectedFeature.review_status}`}>{selectedFeature.review_status}</span><h3>{selectedFeature.properties?.feature_type}</h3><p>ID: {selectedFeature.id}</p><p>Project: {selectedFeature.project_id}</p><p>Upload: {selectedFeature.upload_job_id || 'Not recorded'}</p><p>Geometry: {selectedFeature.geometry?.type}</p><p>Source: {selectedFeature.properties?.source || 'Not recorded'}</p>{Object.entries(selectedFeature.properties || {}).filter(([key]) => key !== 'feature_type' && key !== 'source').map(([key, value]) => <p key={key}>{key}: {typeof value === 'object' ? JSON.stringify(value) : String(value)}</p>)}{selectedFeature.review_status === 'pending' && <div className="review-actions"><button type="button" className="primary" disabled={featureDecisionLoading} onClick={() => updateFeatureReview('approve')}>Approve</button><button type="button" className="danger-button" disabled={featureDecisionLoading} onClick={() => updateFeatureReview('reject')}>Reject</button></div>}</> : <p>Select a feature from the map to review it.</p>}</aside></div>}
+        </div>
+      </div>
+    )}
+>>>>>>> Stashed changes
     <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" aria-invalid={projectMessage.startsWith('Enter a project name')} /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary" disabled={creatingProject}>{creatingProject ? 'Creating project…' : 'Create project'}</button>{projectMessage && <p className="notice" role="alert">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
   </section>;
 

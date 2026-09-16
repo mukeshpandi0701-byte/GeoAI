@@ -50,3 +50,8 @@ def init_db() -> None:
                     connection.execute(
                         text(f"ALTER TABLE upload_jobs ADD COLUMN {column_name} {column_type}")
                     )
+            # Preserve data created by the initial implementation, which used
+            # "accepted" for the product's approved state.
+            connection.execute(
+                text("UPDATE gis_features SET review_status = 'approved' WHERE review_status = 'accepted'")
+            )

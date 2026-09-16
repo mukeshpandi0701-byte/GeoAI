@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import SessionLocal, init_db
 from app.db.models import GISFeature, Project, UploadJob
@@ -55,10 +57,10 @@ def test_feature_associates_with_upload_job_and_filters():
 def test_updates_geometry_and_review_decision():
     created = client.post("/api/features", json=payload(project()["project_id"])).json()
     updated_polygon = {"type": "Polygon", "coordinates": [[[77.1, 12.1], [77.11, 12.1], [77.11, 12.11], [77.1, 12.1]]]}
-    response = client.patch(f"/api/features/{created['id']}", json={"geometry": updated_polygon, "feature_type": "building", "review_status": "accepted", "reviewer": "map reviewer", "reviewer_note": "Visible rooftop confirmed."})
+    response = client.patch(f"/api/features/{created['id']}", json={"geometry": updated_polygon, "feature_type": "building", "review_status": "approved", "reviewer": "map reviewer", "reviewer_note": "Visible rooftop confirmed."})
     assert response.status_code == 200
     assert response.json()["geometry"] == updated_polygon
-    assert response.json()["review_status"] == "accepted"
+    assert response.json()["review_status"] == "approved"
     assert response.json()["reviewer_note"] == "Visible rooftop confirmed."
     assert response.json()["reviewed_at"]
 
@@ -69,6 +71,56 @@ def test_rejects_and_filters_feature():
     rejected = client.get("/api/features?review_status=rejected").json()
     assert rejected[0]["id"] == created["id"]
     assert rejected[0]["review_status"] == "rejected"
+
+
+def test_pending_feature_can_be_approved_through_review_api():
+    created = client.post("/api/features", json=payload(project()["project_id"])).json()
+
+    response = client.patch(f"/api/features/{created['id']}/review?decision=approve")
+
+    assert response.status_code == 200
+    assert response.json()["review_status"] == "approved"
+    assert response.json()["reviewed_at"]
+
+
+def test_pending_feature_can_be_rejected_through_review_api():
+    created = client.post("/api/features", json=payload(project()["project_id"])).json()
+
+    response = client.patch(f"/api/features/{created['id']}/review?decision=reject")
+
+    assert response.status_code == 200
+    assert response.json()["review_status"] == "rejected"
+
+
+@pytest.mark.parametrize("first_action,second_action", [("approve", "reject"), ("reject", "approve")])
+def test_reviewed_feature_cannot_change_review_decision(first_action, second_action):
+    created = client.post("/api/features", json=payload(project()["project_id"])).json()
+    assert client.patch(f"/api/features/{created['id']}/review?decision={first_action}").status_code == 200
+
+    response = client.patch(f"/api/features/{created['id']}/review?decision={second_action}")
+
+    assert response.status_code == 409
+    assert "Only pending" in response.json()["detail"]
+
+
+def test_review_api_validates_action_and_feature_id():
+    created = client.post("/api/features", json=payload(project()["project_id"])).json()
+
+    assert client.patch(f"/api/features/{created['id']}/review?decision=publish").status_code == 422
+    assert client.patch("/api/features/not-a-feature/review?decision=approve").status_code == 404
+
+
+def test_review_api_reports_persistence_failure(monkeypatch):
+    created = client.post("/api/features", json=payload(project()["project_id"])).json()
+
+    def fail_review(*args, **kwargs):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr("app.api.routes.review_feature", fail_review)
+    response = client.patch(f"/api/features/{created['id']}/review?decision=approve")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Could not persist GIS feature review."
 
 
 def test_deletes_feature():

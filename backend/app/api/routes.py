@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -20,6 +21,8 @@ from app.services.gis_features_service import (
     delete_feature,
     get_feature,
     list_features,
+    ReviewTransitionError,
+    review_feature,
     update_feature,
 )
 
@@ -175,8 +178,29 @@ def feature_lookup(feature_id: str, db: Session = Depends(get_db)):
 def feature_update(feature_id: str, changes: GISFeatureUpdate, db: Session = Depends(get_db)):
     try:
         feature = update_feature(db, feature_id, changes)
+    except ReviewTransitionError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Could not persist GIS feature changes.") from error
+    if not feature:
+        raise HTTPException(status_code=404, detail="GIS feature not found.")
+    return feature
+
+
+@router.patch("/features/{feature_id}/review", tags=["features"])
+def feature_review(feature_id: str, decision: str, db: Session = Depends(get_db)):
+    try:
+        feature = review_feature(db, feature_id, decision)
+    except ReviewTransitionError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Could not persist GIS feature review.") from error
     if not feature:
         raise HTTPException(status_code=404, detail="GIS feature not found.")
     return feature

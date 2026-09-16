@@ -75,3 +75,14 @@ export async function updateFeatureReview(featureId, { decision, notes, geometry
   }));
 
 }
+
+export async function getGISFeatures() {
+  return readResponse(await request(`${API_URL}/api/features`));
+}
+
+export async function reviewGISFeature(featureId, decision) {
+  return readResponse(await request(
+    `${API_URL}/api/features/${featureId}/review?decision=${encodeURIComponent(decision)}`,
+    { method: 'PATCH' },
+  ));
+}

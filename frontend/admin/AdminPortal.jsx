@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { projects, features } from '../shared/mockData';
-import { createProject, getProjects, getReviewQueue, getUploadStatus, updateReviewStatus, uploadDroneImage } from './api';
+import { createProject, getProjectFeatures, getProjectUploads, getProjects, getReviewQueue, getUploadStatus, updateFeatureReview, updateReviewStatus, uploadDroneImage } from './api';
 
 export default function AdminPortal() {
 const [projectName, setProjectName] = useState('');
@@ -20,6 +20,12 @@ const [reviewOpen, setReviewOpen] = useState(false);
 const [reviewLoading, setReviewLoading] = useState(false);
 const [reviewError, setReviewError] = useState('');
 const [reviewFeatures, setReviewFeatures] = useState(features);
+const [detailProjectId, setDetailProjectId] = useState('');
+const [detailUploads, setDetailUploads] = useState([]);
+const [gisFeatures, setGisFeatures] = useState([]);
+const [detailLoading, setDetailLoading] = useState(false);
+const [detailError, setDetailError] = useState('');
+const [featureNotes, setFeatureNotes] = useState({});
   const displayedProjects = apiProjects.length ? apiProjects : projects;
 const handleOpenReviewQueue = async () => {
   setReviewOpen(true);
@@ -84,6 +90,24 @@ const handleReviewDecision = async (jobId, decision) => {
   }
 
   useEffect(() => { loadProjects(); }, []);
+
+  useEffect(() => {
+    if (!detailProjectId) return undefined;
+    setDetailLoading(true); setDetailError('');
+    Promise.all([getProjectUploads(detailProjectId), getProjectFeatures(detailProjectId)])
+      .then(([uploads, response]) => { setDetailUploads(uploads); setGisFeatures(response.features || response || []); })
+      .catch(error => setDetailError(error.message))
+      .finally(() => setDetailLoading(false));
+    return undefined;
+  }, [detailProjectId]);
+
+  const reviewFeature = async (feature, decision) => {
+    try {
+      const featureId = feature.id || feature.properties?.id;
+      const updated = await updateFeatureReview(featureId, { decision, notes: featureNotes[featureId] || '' });
+      setGisFeatures(current => current.map(item => (item.id || item.properties?.id) === (updated.id || updated.properties?.id) ? updated : item));
+    } catch (error) { setDetailError(error.message); }
+  };
 
   useEffect(() => {
     if (!upload?.job_id || upload.status !== 'queued') return undefined;
@@ -278,6 +302,15 @@ const handleReviewDecision = async (jobId, decision) => {
     </div>
   </div>
 )}
+
+    <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary">Create project</button>{projectMessage && <p className="notice">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
+
+    <section className="data-section panel"><span className="eyebrow">Project detail and history</span><h2>Review a project</h2><label>Selected project<select value={detailProjectId} onChange={event => setDetailProjectId(event.target.value)}><option value="">Select a live project</option>{apiProjects.map(project => <option key={project.project_id} value={project.project_id}>{project.project_name}</option>)}</select></label>{detailLoading && <p className="notice">Loading project history…</p>}{detailError && <p className="notice" role="alert">{detailError}</p>}{detailProjectId && !detailLoading && <><h3>Upload decisions</h3>{detailUploads.length ? <div className="history-list">{detailUploads.map(upload => <p key={upload.job_id}><strong>{upload.filename}</strong> — <span className={`status ${upload.status}`}>{upload.status}</span> {upload.reviewed_timestamp && `reviewed ${new Date(upload.reviewed_timestamp).toLocaleString()}`}</p>)}</div> : <p>No uploads have been linked to this project.</p>}<h3>Individual GIS feature review</h3><p className="notice">Feature decisions are persisted by the GIS API. Geometry editing appears only when that API accepts a geometry update.</p>{gisFeatures.length ? <div className="feature-review-list">{gisFeatures.map((feature, index) => { const id = feature.id || feature.properties?.id || `${feature.properties?.feature_type}-${index}`; const type = feature.properties?.feature_type || feature.feature_type || 'feature'; const status = feature.properties?.review_status || feature.review_status || 'review'; return <article className="feature-review" key={id}><div><strong>{type[0].toUpperCase() + type.slice(1)} #{index + 1}</strong><p>Decision: {status}</p></div><textarea aria-label={`Notes for ${type} ${index + 1}`} value={featureNotes[id] || ''} onChange={event => setFeatureNotes(current => ({ ...current, [id]: event.target.value }))} placeholder="Reviewer notes" /><div className="review-actions"><button type="button" className="primary" onClick={() => reviewFeature(feature, 'accepted')}>Accept</button><button type="button" className="danger-button" onClick={() => reviewFeature(feature, 'rejected')}>Reject</button></div></article>; })}</div> : <p>No GIS features are ready for individual review.</p>}</>}</section>
+  </section>;
+=======
+</section>;
+=======
     <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" aria-invalid={projectMessage.startsWith('Enter a project name')} /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary" disabled={creatingProject}>{creatingProject ? 'Creating project…' : 'Create project'}</button>{projectMessage && <p className="notice" role="alert">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
   </section>;
+
 }

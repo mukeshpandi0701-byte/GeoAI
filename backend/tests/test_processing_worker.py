@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 from app.ai.feature_handoff import ExtractedFeatureBatch
 from app.ai.worker import DuplicateProcessingError, ProcessingWorker
 from app.db.database import SessionLocal, init_db
-from app.db.models import Project, UploadJob
+from app.db.models import GISFeature, Project, UploadJob
 
 
 def sample_imagery() -> bytes:
@@ -30,6 +30,11 @@ class RecordingPersistence:
         self.batches.append(batch)
 
 
+class FailingPersistence:
+    def persist(self, batch: ExtractedFeatureBatch) -> None:
+        raise RuntimeError("GIS feature persistence unavailable")
+
+
 class InvalidGeometryExtractor:
     def extract(self, image: Image.Image) -> list[dict]:
         return [{
@@ -43,6 +48,7 @@ class InvalidGeometryExtractor:
 def clean_database():
     init_db()
     with SessionLocal() as db:
+        db.query(GISFeature).delete()
         db.query(UploadJob).delete()
         db.query(Project).delete()
         db.commit()
@@ -129,6 +135,26 @@ def test_successful_extraction_outputs_building_road_and_indicative_parcel(uploa
     assert parcel["properties"]["legal_status"] == "not_a_legal_or_cadastral_boundary"
 
 
+def test_worker_persists_ai_features_to_gis_for_the_upload_project(uploads_path):
+    job = create_job(uploads_path, image_data=sample_imagery())
+
+    result = worker(uploads_path).process_job(job.id)
+
+    with SessionLocal() as db:
+        persisted = db.query(GISFeature).filter_by(upload_job_id=job.id).all()
+        stored_job = db.get(UploadJob, job.id)
+
+    assert result.status == "review"
+    assert stored_job.status == "review"
+    assert len(persisted) == len(result.features)
+    assert persisted
+    assert all(feature.project_id == job.project_id for feature in persisted)
+    assert all(feature.upload_job_id == job.id for feature in persisted)
+    assert {feature.feature_type for feature in persisted} == {
+        feature["properties"]["feature_type"] for feature in result.features
+    }
+
+
 def test_missing_imagery_marks_job_failed_with_reason(uploads_path):
     job = create_job(uploads_path)
 
@@ -180,3 +206,15 @@ def test_timeout_marks_job_failed(uploads_path):
 
     assert result.status == "failed"
     assert "timed out" in result.failure_reason
+
+
+def test_persistence_failure_marks_job_failed_with_reason(uploads_path):
+    job = create_job(uploads_path, image_data=sample_imagery())
+
+    result = worker(uploads_path, persistence=FailingPersistence()).process_job(job.id)
+
+    stored = get_job(job.id)
+    assert result.status == "failed"
+    assert stored.status == "failed"
+    assert "GIS feature persistence unavailable" in result.failure_reason
+    assert stored.failure_reason == result.failure_reason

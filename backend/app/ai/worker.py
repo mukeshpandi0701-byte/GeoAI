@@ -10,12 +10,13 @@ from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.ai.feature_handoff import DeferredFeatureHandoff, ExtractedFeatureBatch, FeaturePersistencePort
+from app.ai.feature_handoff import ExtractedFeatureBatch, FeaturePersistencePort
 from app.ai.image_preprocessing import preprocess_image
 from app.ai.imagery_extraction import ExtractionError, LocalImageryExtractor
 from app.db.database import SessionLocal
 from app.db.models import UploadJob, utc_now
 from app.gis.geometry import create_feature
+from app.services.gis_features_service import GISFeaturePersistenceAdapter
 
 
 class JobNotFoundError(RuntimeError):
@@ -54,7 +55,7 @@ class ProcessingWorker:
         max_processing_seconds: float = 30.0,
     ) -> None:
         self.session_factory = session_factory
-        self.feature_persistence = feature_persistence or DeferredFeatureHandoff()
+        self.feature_persistence = feature_persistence or GISFeaturePersistenceAdapter(session_factory)
         self.extractor = extractor or LocalImageryExtractor()
         self.upload_directory = upload_directory or Path(__file__).resolve().parents[2] / "storage" / "uploads"
         if max_processing_seconds <= 0:

@@ -4,14 +4,46 @@ import json
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai.feature_handoff import ExtractedFeatureBatch, FeaturePersistencePort
+from app.db.database import SessionLocal
 from app.db.models import GISFeature, Project, UploadJob
 from app.gis.geometry import create_feature as make_feature
 from app.gis.spatial_validation import ensure_no_polygon_self_intersection, overlap_warnings
 from app.models.gis_feature import GISFeatureCreate, GISFeatureUpdate
 
 REVIEW_STATUSES = {"pending", "accepted", "rejected"}
+
+
+class GISFeaturePersistenceAdapter(FeaturePersistencePort):
+    """Persist validated AI output through the established GIS feature service."""
+
+    def __init__(self, session_factory: sessionmaker = SessionLocal) -> None:
+        self.session_factory = session_factory
+
+    def persist(self, batch: ExtractedFeatureBatch) -> None:
+        if not batch.project_id:
+            raise ValueError("AI feature persistence requires an associated project.")
+
+        with self.session_factory() as db:
+            for feature in batch.features:
+                properties = feature.get("properties")
+                if not isinstance(properties, dict):
+                    raise ValueError("AI feature persistence requires feature properties.")
+                feature_type = properties.get("feature_type")
+                if not isinstance(feature_type, str):
+                    raise ValueError("AI feature persistence requires a feature type.")
+                create_feature(
+                    db,
+                    GISFeatureCreate(
+                        project_id=batch.project_id,
+                        upload_job_id=batch.upload_job_id,
+                        feature_type=feature_type,
+                        geometry=feature.get("geometry"),
+                        properties=properties,
+                    ),
+                )
 
 
 def _json(value: str):

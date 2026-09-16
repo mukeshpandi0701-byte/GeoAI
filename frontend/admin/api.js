@@ -53,3 +53,9 @@ export async function updateReviewStatus(jobId, decision) {
 export async function getProjectUploads(projectId) {
   return readResponse(await request(`${API_URL}/api/projects/${projectId}/uploads`));
 }
+
+export async function getProjectFeatures(projectId) {
+  return readResponse(await request(
+    `${API_URL}/api/features?project_id=${encodeURIComponent(projectId)}`,
+  ));
+}

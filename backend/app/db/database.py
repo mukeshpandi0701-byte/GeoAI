@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -32,3 +32,9 @@ def init_db() -> None:
     from app.db import models  # noqa: F401 - registers models with Base metadata
 
     Base.metadata.create_all(bind=engine)
+    # Keep local SQLite databases made before the review timestamp was added usable.
+    if DATABASE_URL.startswith("sqlite"):
+        columns = {column["name"] for column in inspect(engine).get_columns("upload_jobs")}
+        if "reviewed_at" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE upload_jobs ADD COLUMN reviewed_at DATETIME"))

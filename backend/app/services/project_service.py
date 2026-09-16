@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ai.processing_service import AIProcessingService
-from app.db.models import UploadJob
+from app.db.models import Project, UploadJob
 from app.gis.processing_service import GISProcessingService
 
 
@@ -29,6 +29,10 @@ class UploadStorageError(Exception):
     """Raised when an uploaded file or its metadata cannot be stored."""
 
 
+class ProjectNotFoundError(Exception):
+    """Raised when an upload references a project that does not exist."""
+
+
 def validate_image_file(file: UploadFile) -> None:
     """Require a recognized image extension and matching MIME type."""
     suffix = Path(file.filename or "").suffix.lower()
@@ -46,16 +50,26 @@ def upload_job_response(job: UploadJob) -> dict:
         "size": job.file_size,
         "status": job.status,
         "timestamp": job.created_at.isoformat(),
+        "reviewed_timestamp": job.reviewed_at.isoformat() if job.reviewed_at else None,
+        "project_id": job.project_id,
     }
 
 
-async def create_upload_job(db: Session, file: UploadFile, project_name: str) -> dict:
+async def create_upload_job(
+    db: Session,
+    file: UploadFile,
+    project_name: str,
+    project_id: str | None = None,
+) -> dict:
     """Store an image locally and persist its queued-job metadata."""
     job_id = str(uuid4())
     original_name = Path(file.filename or "upload").name
     suffix = Path(original_name).suffix.lower()
     stored_filename = f"{job_id}{suffix}"
     stored_path = UPLOAD_DIRECTORY / stored_filename
+    project = db.get(Project, project_id) if project_id else None
+    if project_id and not project:
+        raise ProjectNotFoundError("Selected project was not found.")
 
     try:
         UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
@@ -72,6 +86,7 @@ async def create_upload_job(db: Session, file: UploadFile, project_name: str) ->
         content_type=file.content_type,
         status="queued",
         project_name=project_name.strip(),
+        project_id=project_id,
     )
     try:
         db.add(job)
@@ -81,8 +96,31 @@ async def create_upload_job(db: Session, file: UploadFile, project_name: str) ->
         db.rollback()
         raise UploadStorageError("Unable to save upload metadata.") from error
 
-    ai_service.queue(job_id, project_name)
-    gis_service.prepare(job_id)
+    try:
+        job.status = "processing"
+        db.commit()
+        db.refresh(job)
+
+        ai_service.queue(job_id, project_name)
+        gis_service.prepare(job_id)
+
+        job.status = "review"
+        if project:
+            project.status = "review"
+        db.commit()
+        db.refresh(job)
+
+    except Exception as error:
+        db.rollback()
+
+        job.status = "error"
+        db.commit()
+        db.refresh(job)
+
+        raise UploadStorageError(
+            "AI/GIS processing failed."
+        ) from error
+
     return upload_job_response(job)
 
 

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { projects, features } from '../shared/mockData';
-import { createProject, getProjects, getUploadStatus, uploadDroneImage } from './api';
+import { createProject, getProjects, getReviewQueue, getUploadStatus, updateReviewStatus, uploadDroneImage } from './api';
 
 export default function AdminPortal() {
-  const [projectName, setProjectName] = useState('');
+const [projectName, setProjectName] = useState('');
+const [selectedProjectId, setSelectedProjectId] = useState('');
   const [file, setFile] = useState(null);
   const [upload, setUpload] = useState(null);
   const [uploadError, setUploadError] = useState('');
@@ -11,9 +12,67 @@ export default function AdminPortal() {
   const [apiProjects, setApiProjects] = useState([]);
   const [projectForm, setProjectForm] = useState({ name: '', description: '', location: '' });
   const [projectMessage, setProjectMessage] = useState('');
-
+const [reviewQueue, setReviewQueue] = useState([]);
+const [reviewedItems, setReviewedItems] = useState([]);
+const [reviewOpen, setReviewOpen] = useState(false);
+const [reviewLoading, setReviewLoading] = useState(false);
+const [reviewError, setReviewError] = useState('');
+const [reviewFeatures, setReviewFeatures] = useState(features);
   const displayedProjects = apiProjects.length ? apiProjects : projects;
+const handleOpenReviewQueue = async () => {
+  setReviewOpen(true);
+  setReviewLoading(true);
+  setReviewError('');
 
+try {
+const [queue, approved, rejected] = await Promise.all([
+  getReviewQueue(),
+  getReviewQueue('approved'),
+  getReviewQueue('rejected'),
+]);
+setReviewQueue(queue);
+setReviewedItems([...approved, ...rejected].sort(
+  (left, right) => new Date(right.timestamp) - new Date(left.timestamp),
+));
+  } catch (error) {
+    console.error('Review queue error:', error);
+    setReviewError(error.message);
+  } finally {
+    setReviewLoading(false);
+  }
+};
+const closeReviewQueue = () => {
+  setReviewOpen(false);
+};
+
+const handleReviewDecision = async (jobId, decision) => {
+  try {
+    const updatedJob = await updateReviewStatus(jobId, decision);
+
+    setReviewQueue(currentQueue =>
+      currentQueue.filter(job => job.job_id !== updatedJob.job_id)
+    );
+    setReviewedItems(currentItems => [updatedJob, ...currentItems]);
+
+    if (decision === 'approved') {
+      setReviewFeatures(currentFeatures =>
+        currentFeatures.map(feature => {
+          if (feature.type === 'Parcel boundaries') {
+            return {
+              ...feature,
+              count: feature.count + 1,
+            };
+          }
+
+          return feature;
+        })
+      );
+    }
+  } catch (error) {
+    console.error('Review decision error:', error);
+    setReviewError(error.message);
+  }
+};
   async function loadProjects() {
     try {
       setApiProjects(await getProjects());
@@ -44,9 +103,10 @@ export default function AdminPortal() {
     setUploadError('');
     setUpload(null);
     try {
-      const result = await uploadDroneImage(file, projectName);
+      const result = await uploadDroneImage(file, projectName, selectedProjectId);
       setUpload(result);
       setProjectName('');
+      setSelectedProjectId('');
       setFile(null);
       event.target.reset();
     } catch (error) {
@@ -69,9 +129,139 @@ export default function AdminPortal() {
     }
   }
 
+
   return <section className="portal admin-portal"><div className="portal-heading admin-heading"><div><span className="eyebrow">Operations workspace</span><h1>Turn imagery into<br /><em>map-ready insight.</em></h1><p>Bring in survey imagery, follow processing, and review AI-assisted physical feature layers in one place.</p></div><div className="workspace-summary"><span>Active projects</span><strong>{displayedProjects.length}</strong><small>Across your workspace</small></div></div>
     <div className="admin-grid"><form className="panel upload-panel" onSubmit={submit}><div className="panel-title"><span className="panel-icon">↑</span><div><small>Step 01</small><h2>New imagery upload</h2></div></div><p className="panel-copy">Start a mapping run by connecting its project to a drone image.</p><label>Project name<input value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. East Ward Survey" /></label><label className="file-label">Drone image<input type="file" accept="image/*,.tif,.tiff" onChange={e => setFile(e.target.files[0])} /><span>{file ? file.name : 'Choose an image or TIFF file'}<small>JPG, PNG, WEBP or TIFF</small></span></label><button className="primary" disabled={uploading}>{uploading ? 'Uploading image…' : 'Start upload'} <span>→</span></button>{uploadError && <p className="notice">{uploadError}</p>}{upload && <div className="notice upload-result"><strong>Upload {upload.status}</strong><span>Job ID: {upload.job_id}</span><span>File: {upload.filename} · {upload.size} bytes</span></div>}</form>
       <aside className="panel review-panel"><div className="panel-title"><span className="panel-icon">✦</span><div><small>Feature inventory</small><h2>Ready for review</h2></div></div><p className="panel-copy">A clear overview of extracted physical map layers.</p><div className="metrics">{features.map((feature, index) => <div className="metric" key={feature.type}><span className={`metric-icon metric-${index}`}>{index === 0 ? '⌁' : index === 1 ? '□' : '—'}</span><span>{feature.type}</span><strong>{feature.count}</strong></div>)}</div><button className="secondary">Open review queue <span>→</span></button></aside></div>
     <section className="data-section"><div className="section-heading"><div><span className="eyebrow">Project management</span><h2>Mapping activity</h2></div><span className="status-summary"><i />{displayedProjects.length} projects tracked</span></div><div className="project-section"><form className="panel upload-panel project-form" onSubmit={submitProject}><h3>Create a project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="secondary">Create project <span>→</span></button>{projectMessage && <p className="notice">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; return <article className="project" key={id}><div className="project-code">{name.split(' ').map(word => word[0]).slice(0, 2).join('')}</div><div className="project-details"><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p></div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'Awaiting imagery upload' : `${progress}% complete`}</small></div></article>; })}</div></div></section>
-  </section>;
+=======
+  return <section><div className="portal-heading"><div><span className="eyebrow">Administration workspace</span><h2>Mapping projects</h2><p>Upload imagery, monitor mock processing, and review extracted cadastral features.</p></div></div>
+    <div className="admin-grid"><form className="panel upload-panel" onSubmit={submit}><h3>New imagery upload</h3><label>Project name<input value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. East Ward Survey" /></label><label>Link to project<select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}><option value="">No linked project</option>{apiProjects.map(project => <option key={project.project_id} value={project.project_id}>{project.project_name}</option>)}</select></label><label>Drone image<input type="file" accept="image/*,.tif,.tiff" onChange={e => setFile(e.target.files[0])} /></label><button className="primary" disabled={uploading}>{uploading ? 'Uploading image…' : 'Upload image'}</button>{uploadError && <p className="notice">{uploadError}</p>}{upload && <div className="notice upload-result"><strong>Upload {upload.status}</strong><span>Job ID: {upload.job_id}</span><span>File: {upload.filename} · {upload.size} bytes</span><span>Status: {upload.status}</span>{upload.project_id && <span>Linked project: {upload.project_id}</span>}</div>}</form>
+      <aside className="panel"><h3>Feature review</h3>{reviewFeatures.map(feature => (
+  <div className="metric" key={feature.type}>
+    <span>{feature.type}</span>
+    <strong>{feature.count}</strong>
+  </div>
+))}<button type="button" onClick={handleOpenReviewQueue}>
+  Open review queue
+</button></aside></div>
+    {reviewOpen && (
+  <div className="review-overlay">
+    <div className="review-modal">
+      <div className="review-modal-header">
+        <div>
+          <span className="eyebrow">Administration</span>
+          <h2>Review queue</h2>
+          <p>Review uploaded drone imagery before publishing.</p>
+        </div>
+
+        <button
+          type="button"
+          className="close-button"
+          onClick={closeReviewQueue}
+        >
+          ✕
+        </button>
+      </div>
+
+      {reviewLoading && (
+        <p className="notice">Loading review items...</p>
+      )}
+
+      {reviewError && (
+        <p className="notice">{reviewError}</p>
+      )}
+
+      {!reviewLoading && !reviewError && reviewQueue.length === 0 && (
+        <div className="empty-review">
+          <h3>No images waiting for review</h3>
+          <p>Upload a drone image to create a new review item.</p>
+        </div>
+      )}
+
+      {!reviewLoading && reviewQueue.length > 0 && (
+        <div className="review-list">
+          {reviewQueue.map(job => (
+            <article className="review-card" key={job.job_id}>
+              <div className="review-card-icon">
+                🛰️
+              </div>
+
+              <div className="review-card-content">
+                <h3>{job.project_name}</h3>
+
+                <p className="review-filename">
+                  {job.filename}
+                </p>
+
+                <div className="review-meta">
+                  <span>
+                    <strong>Job ID:</strong> {job.job_id}
+                  </span>
+
+                  <span>
+                    <strong>File size:</strong>{' '}
+                    {(job.size / 1024).toFixed(2)} KB
+                  </span>
+
+                  <span>
+                    <strong>Uploaded:</strong>{' '}
+                    {new Date(job.timestamp).toLocaleString()}
+                  </span>
+                </div>
+
+                <span className="review-status">
+                  {job.status}
+                </span>
+
+                <div className="review-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() =>
+                      handleReviewDecision(job.job_id, 'approved')
+                    }
+                  >
+                    ✓ Approve
+                  </button>
+
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() =>
+                      handleReviewDecision(job.job_id, 'rejected')
+                    }
+                  >
+                    ✕ Reject
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {!reviewLoading && reviewedItems.length > 0 && (
+        <section className="review-history">
+          <h3>Reviewed imagery</h3>
+          <p>Approved and rejected items remain available here after a decision.</p>
+          <div className="review-list">
+            {reviewedItems.map(job => (
+              <article className="review-card" key={job.job_id}>
+                <div className="review-card-icon">🛰️</div>
+                <div className="review-card-content">
+                  <h3>{job.project_name}</h3>
+                  <p className="review-filename">{job.filename}</p>
+                  <span className="review-status">{job.status}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  </div>
+)}
+    <section className="data-section"><span className="eyebrow">Project management</span><h2>Processing status</h2><form className="panel upload-panel" onSubmit={submitProject}><h3>Create project</h3><label>Project name<input value={projectForm.name} onChange={e => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="e.g. East Ward Survey" /></label><label>Description<input value={projectForm.description} onChange={e => setProjectForm({ ...projectForm, description: e.target.value })} placeholder="Optional survey details" /></label><label>Location<input value={projectForm.location} onChange={e => setProjectForm({ ...projectForm, location: e.target.value })} placeholder="Optional ward or area" /></label><button className="primary">Create project</button>{projectMessage && <p className="notice">{projectMessage}</p>}</form><div className="project-list">{displayedProjects.map(project => { const liveProject = Boolean(project.project_id); const id = liveProject ? project.project_id : project.id; const name = liveProject ? project.project_name : project.name; const date = liveProject ? new Date(project.created_timestamp).toLocaleDateString() : project.date; const status = project.status; const progress = liveProject ? 0 : project.progress; const uploadSummary = project.upload_summary; return <article className="project" key={id}><div><h3>{name}</h3><p>{id} · {date} · {liveProject ? (project.location || 'No location') : `${project.parcels || '—'} parcels`}</p>{uploadSummary && <small>{uploadSummary.total} uploads · {uploadSummary.review} awaiting review · {uploadSummary.approved} approved · {uploadSummary.rejected} rejected</small>}</div><div className="progress-wrap"><span className={`status ${status.toLowerCase()}`}>{status}</span><div className="progress"><i style={{ width: `${progress}%` }} /></div><small>{liveProject ? 'View upload history in the review queue' : `${progress}% complete`}</small></div></article>; })}</div></section>
+</section>;
 }

@@ -54,8 +54,24 @@ export async function getProjectUploads(projectId) {
   return readResponse(await request(`${API_URL}/api/projects/${projectId}/uploads`));
 }
 
+
 export async function getProjectFeatures(projectId) {
   return readResponse(await request(
     `${API_URL}/api/features?project_id=${encodeURIComponent(projectId)}`,
   ));
+
+// GIS feature endpoints are intentionally kept behind this small adapter. The GIS
+// service owns persistence and publication decisions; the UI never infers them.
+export async function getProjectFeatures(projectId, { publishedOnly = false } = {}) {
+  const query = publishedOnly ? '?published=true' : '';
+  return readResponse(await fetch(`${API_URL}/api/projects/${projectId}/features${query}`));
+}
+
+export async function updateFeatureReview(featureId, { decision, notes, geometry }) {
+  return readResponse(await fetch(`${API_URL}/api/features/${featureId}/review`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision, notes, ...(geometry ? { geometry } : {}) }),
+  }));
+
 }

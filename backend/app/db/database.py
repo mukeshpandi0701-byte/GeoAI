@@ -32,9 +32,21 @@ def init_db() -> None:
     from app.db import models  # noqa: F401 - registers models with Base metadata
 
     Base.metadata.create_all(bind=engine)
-    # Keep local SQLite databases made before the review timestamp was added usable.
+    # Keep local SQLite databases made before processing metadata was added usable.
     if DATABASE_URL.startswith("sqlite"):
         columns = {column["name"] for column in inspect(engine).get_columns("upload_jobs")}
-        if "reviewed_at" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE upload_jobs ADD COLUMN reviewed_at DATETIME"))
+        additions = {
+            "processing_started_at": "DATETIME",
+            "processing_completed_at": "DATETIME",
+            "failed_at": "DATETIME",
+            "failure_reason": "TEXT",
+            "retry_count": "INTEGER NOT NULL DEFAULT 0",
+            "worker_token": "VARCHAR(36)",
+            "reviewed_at": "DATETIME",
+        }
+        with engine.begin() as connection:
+            for column_name, column_type in additions.items():
+                if column_name not in columns:
+                    connection.execute(
+                        text(f"ALTER TABLE upload_jobs ADD COLUMN {column_name} {column_type}")
+                    )

@@ -12,10 +12,12 @@ venv/
 
 # Local configuration and uploaded imagery
 .env
+.env.local
 .npm-cache/
 backend/storage/uploads/*
 !backend/storage/uploads/.gitkeep
 backend/storage/*.db
+backend/storage/worker_test_uploads/
 
 # IDE and operating system files
 .vscode/

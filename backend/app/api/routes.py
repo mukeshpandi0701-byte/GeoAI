@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
+from app.models.gis_feature import GISFeatureCreate, GISFeatureUpdate
 from app.models.project import ProjectCreate
 from app.db.models import Project, UploadJob, utc_now
 from app.services.project_service import upload_job_response
@@ -14,6 +15,13 @@ from app.services.project_service import (
     validate_image_file,
 )
 from app.services.projects_service import create_project, get_project, list_projects
+from app.services.gis_features_service import (
+    create_feature,
+    delete_feature,
+    get_feature,
+    list_features,
+    update_feature,
+)
 
 router = APIRouter()
 @router.patch("/review-queue/{job_id}", tags=["review"])
@@ -128,3 +136,47 @@ def project_upload_history(project_id: str, db: Session = Depends(get_db)):
         .all()
     )
     return [upload_job_response(job) for job in jobs]
+
+
+@router.post("/features", status_code=201, tags=["features"])
+def create_feature_endpoint(feature: GISFeatureCreate, db: Session = Depends(get_db)):
+    try:
+        return create_feature(db, feature)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/features", tags=["features"])
+def feature_list(
+    project_id: str | None = None,
+    upload_job_id: str | None = None,
+    feature_type: str | None = None,
+    review_status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return list_features(db, project_id, upload_job_id, feature_type, review_status)
+
+
+@router.get("/features/{feature_id}", tags=["features"])
+def feature_lookup(feature_id: str, db: Session = Depends(get_db)):
+    feature = get_feature(db, feature_id)
+    if not feature:
+        raise HTTPException(status_code=404, detail="GIS feature not found.")
+    return feature
+
+
+@router.patch("/features/{feature_id}", tags=["features"])
+def feature_update(feature_id: str, changes: GISFeatureUpdate, db: Session = Depends(get_db)):
+    try:
+        feature = update_feature(db, feature_id, changes)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not feature:
+        raise HTTPException(status_code=404, detail="GIS feature not found.")
+    return feature
+
+
+@router.delete("/features/{feature_id}", status_code=204, tags=["features"])
+def feature_delete(feature_id: str, db: Session = Depends(get_db)):
+    if not delete_feature(db, feature_id):
+        raise HTTPException(status_code=404, detail="GIS feature not found.")

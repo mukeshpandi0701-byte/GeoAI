@@ -23,7 +23,7 @@ def test_health_endpoint():
     assert response.json() == {"status": "ok", "database": "configured"}
 
 
-def test_valid_image_upload_reaches_review_queue():
+def test_valid_image_upload_creates_queued_job():
     response = client.post(
         "/api/uploads/drone-image",
         data={"project_name": "Central Ward Survey"},
@@ -34,7 +34,7 @@ def test_valid_image_upload_reaches_review_queue():
     job = response.json()
     assert job["filename"] == "parcel.png"
     assert job["size"] == len(b"mock image data")
-    assert job["status"] == "review"
+    assert job["status"] == "queued"
     assert job["timestamp"]
 
 
@@ -95,7 +95,11 @@ def test_reviewed_upload_remains_available_after_approval():
         files={"file": ("parcel.jpg", b"mock jpg data", "image/jpeg")},
     ).json()
 
-    assert created["status"] == "review"
+    assert created["status"] == "queued"
+    with SessionLocal() as db:
+        job = db.get(UploadJob, created["job_id"])
+        job.status = "review"
+        db.commit()
     response = client.patch(
         f"/api/review-queue/{created['job_id']}?decision=approved"
     )
@@ -117,8 +121,8 @@ def test_upload_can_be_linked_to_project_and_appears_in_history():
 
     assert created["project_id"] == project["project_id"]
     detail = client.get(f"/api/projects/{project['project_id']}").json()
-    assert detail["status"] == "review"
-    assert detail["upload_summary"]["review"] == 1
+    assert detail["status"] == "created"
+    assert detail["upload_summary"]["queued"] == 1
     history = client.get(f"/api/projects/{project['project_id']}/uploads").json()
     assert history == [created]
 
@@ -130,6 +134,10 @@ def test_approval_records_timestamp_and_publishes_linked_project():
         data={"project_name": "Central Ward", "project_id": project["project_id"]},
         files={"file": ("parcel.png", b"linked upload", "image/png")},
     ).json()
+    with SessionLocal() as db:
+        stored_job = db.get(UploadJob, job["job_id"])
+        stored_job.status = "review"
+        db.commit()
 
     approved = client.patch(
         f"/api/review-queue/{job['job_id']}?decision=approved"

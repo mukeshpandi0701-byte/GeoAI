@@ -28,6 +28,8 @@ The frontend defaults to `http://localhost:8000`. To use another API address, cr
 VITE_API_URL=http://localhost:8000
 ```
 
+Run the backend before using Admin Portal uploads, projects, or review actions. If the UI says it cannot reach the backend, verify `VITE_API_URL`, start FastAPI, and restart Vite after changing `.env.local`.
+
 Backend:
 
 ```powershell

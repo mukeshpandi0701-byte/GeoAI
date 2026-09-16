@@ -1,5 +1,11 @@
 class AIProcessingService:
-    """Interface boundary for future parcel/building/road extraction models."""
+    """Queue-facing boundary for the local processing worker.
+
+    Upload requests only create durable queued jobs.  A worker process claims
+    them separately, which avoids the former mock status progression.
+    """
+
     def queue(self, job_id: str, project_name: str) -> None:
-        # Future implementation: submit imagery to a worker/model pipeline.
-        print(f"[mock AI] queued {job_id} for {project_name}")
+        # A production queue can be attached here later. The database row is the
+        # source of truth for the current lightweight worker foundation.
+        return None

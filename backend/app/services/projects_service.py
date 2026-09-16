@@ -1,8 +1,9 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Project, UploadJob
+from app.db.models import GISFeature, Project, UploadJob
 from app.models.project import ProjectCreate
+from app.services.project_service import upload_job_response
 
 
 def project_response(project: Project, db: Session) -> dict:
@@ -56,3 +57,26 @@ def get_project(db: Session, project_id: str) -> dict | None:
     """Look up one persisted project."""
     project = db.get(Project, project_id)
     return project_response(project, db) if project else None
+
+
+def project_processing_history(db: Session, project_id: str) -> list[dict] | None:
+    """Return a project's durable jobs with their persisted feature totals."""
+    if not db.get(Project, project_id):
+        return None
+
+    feature_counts = dict(
+        db.execute(
+            select(GISFeature.upload_job_id, func.count())
+            .where(GISFeature.project_id == project_id)
+            .group_by(GISFeature.upload_job_id)
+        ).all()
+    )
+    jobs = db.scalars(
+        select(UploadJob)
+        .where(UploadJob.project_id == project_id)
+        .order_by(UploadJob.created_at.desc())
+    )
+    return [
+        upload_job_response(job) | {"feature_count": feature_counts.get(job.id, 0)}
+        for job in jobs
+    ]

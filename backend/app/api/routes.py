@@ -44,6 +44,12 @@ def update_review_status(
             detail="Review job not found.",
         )
 
+    if job.status != "review":
+        raise HTTPException(
+            status_code=409,
+            detail="Only successfully processed jobs in review can be approved or rejected.",
+        )
+
     job.status = decision
     job.reviewed_at = utc_now()
     if job.project:

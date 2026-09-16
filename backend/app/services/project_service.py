@@ -7,11 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.ai.processing_service import AIProcessingService
 from app.db.models import Project, UploadJob
-from app.gis.processing_service import GISProcessingService
 
 
 ai_service = AIProcessingService()
-gis_service = GISProcessingService()
 
 UPLOAD_DIRECTORY = Path(__file__).resolve().parents[2] / "storage" / "uploads"
 ALLOWED_IMAGE_TYPES = {
@@ -50,6 +48,15 @@ def upload_job_response(job: UploadJob) -> dict:
         "size": job.file_size,
         "status": job.status,
         "timestamp": job.created_at.isoformat(),
+        "processing_started_timestamp": (
+            job.processing_started_at.isoformat() if job.processing_started_at else None
+        ),
+        "processing_completed_timestamp": (
+            job.processing_completed_at.isoformat() if job.processing_completed_at else None
+        ),
+        "failed_timestamp": job.failed_at.isoformat() if job.failed_at else None,
+        "failure_reason": job.failure_reason,
+        "retry_count": job.retry_count,
         "reviewed_timestamp": job.reviewed_at.isoformat() if job.reviewed_at else None,
         "project_id": job.project_id,
     }
@@ -96,30 +103,9 @@ async def create_upload_job(
         db.rollback()
         raise UploadStorageError("Unable to save upload metadata.") from error
 
-    try:
-        job.status = "processing"
-        db.commit()
-        db.refresh(job)
-
-        ai_service.queue(job_id, project_name)
-        gis_service.prepare(job_id)
-
-        job.status = "review"
-        if project:
-            project.status = "review"
-        db.commit()
-        db.refresh(job)
-
-    except Exception as error:
-        db.rollback()
-
-        job.status = "error"
-        db.commit()
-        db.refresh(job)
-
-        raise UploadStorageError(
-            "AI/GIS processing failed."
-        ) from error
+    # Uploading records a durable queued job. A worker claims it separately so a
+    # slow or failed extraction never blocks the HTTP upload request.
+    ai_service.queue(job_id, project_name)
 
     return upload_job_response(job)
 

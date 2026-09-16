@@ -26,6 +26,7 @@ def project_response(project: Project, db: Session) -> dict:
             "queued": status_counts.get("queued", 0),
             "processing": status_counts.get("processing", 0),
             "review": status_counts.get("review", 0),
+            "failed": status_counts.get("failed", 0),
             "approved": status_counts.get("approved", 0),
             "rejected": status_counts.get("rejected", 0),
         },

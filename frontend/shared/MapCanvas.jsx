@@ -61,9 +61,9 @@ export default function MapCanvas({ layers, features = [], loading = false, erro
         const selectFeature = () => onFeatureSelect?.(feature);
         if (feature.geometry?.type === 'Point') {
           const [cx, cy] = point(feature.geometry.coordinates);
-          return <circle key={feature.id} className={`gis-feature gis-${featureType}`} cx={cx} cy={cy} r="7" role="button" tabIndex="0" aria-label={`Select ${featureType} ${feature.id}`} onClick={selectFeature} onKeyDown={event => event.key === 'Enter' && selectFeature()} />;
+          return <circle key={feature.id} className={`gis-feature gis-${featureType} gis-${feature.review_status}`} cx={cx} cy={cy} r="7" role="button" tabIndex="0" aria-label={`Select ${featureType} ${feature.id}`} onClick={selectFeature} onKeyDown={event => event.key === 'Enter' && selectFeature()} />;
         }
-        return path && <path key={feature.id} d={path} className={`gis-feature gis-${featureType}`} role="button" tabIndex="0" aria-label={`Select ${featureType} ${feature.id}`} onClick={selectFeature} onKeyDown={event => event.key === 'Enter' && selectFeature()} />;
+        return path && <path key={feature.id} d={path} className={`gis-feature gis-${featureType} gis-${feature.review_status}`} role="button" tabIndex="0" aria-label={`Select ${featureType} ${feature.id}`} onClick={selectFeature} onKeyDown={event => event.key === 'Enter' && selectFeature()} />;
       })}
     </svg><span className="map-label"><i />{projectName || 'No project selected'} <small>Persisted GIS features</small></span>
     {loading && <div className="map-state" role="status">Loading mapped features…</div>}

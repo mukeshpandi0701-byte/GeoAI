@@ -13,7 +13,12 @@ from app.gis.geometry import create_feature as make_feature
 from app.gis.spatial_validation import ensure_no_polygon_self_intersection, overlap_warnings
 from app.models.gis_feature import GISFeatureCreate, GISFeatureUpdate
 
-REVIEW_STATUSES = {"pending", "accepted", "rejected"}
+REVIEW_STATUSES = {"pending", "approved", "rejected"}
+REVIEW_ACTIONS = {"approve": "approved", "reject": "rejected"}
+
+
+class ReviewTransitionError(ValueError):
+    pass
 
 
 class GISFeaturePersistenceAdapter(FeaturePersistencePort):
@@ -136,7 +141,11 @@ def update_feature(db: Session, feature_id: str, changes: GISFeatureUpdate) -> d
         feature.validation_warnings_json = json.dumps(warnings)
     if "review_status" in values:
         if values["review_status"] not in REVIEW_STATUSES:
-            raise ValueError("Review status must be pending, accepted, or rejected.")
+            raise ValueError("Review status must be pending, approved, or rejected.")
+        if feature.review_status != "pending" or values["review_status"] == "pending":
+            raise ReviewTransitionError(
+                "Only pending GIS features can be approved or rejected."
+            )
         feature.review_status = values["review_status"]
         feature.reviewed_at = datetime.now(timezone.utc) if values["review_status"] != "pending" else None
     for field in ("reviewer_note", "reviewer"):
@@ -145,6 +154,18 @@ def update_feature(db: Session, feature_id: str, changes: GISFeatureUpdate) -> d
     db.commit()
     db.refresh(feature)
     return feature_response(feature)
+
+
+def review_feature(db: Session, feature_id: str, action: str) -> dict | None:
+    """Apply one of the allowed one-way review decisions to a GIS feature."""
+    review_status = REVIEW_ACTIONS.get(action)
+    if not review_status:
+        raise ValueError("Review action must be approve or reject.")
+    return update_feature(
+        db,
+        feature_id,
+        GISFeatureUpdate(review_status=review_status),
+    )
 
 
 def delete_feature(db: Session, feature_id: str) -> bool:

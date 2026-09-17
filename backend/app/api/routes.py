@@ -1,10 +1,17 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.gis_feature import GISFeatureCreate, GISFeatureUpdate
 from app.models.project import ProjectCreate
 from app.db.models import Project, UploadJob, utc_now
+from app.ai.worker import (
+    DuplicateProcessingError,
+    JobNotFoundError,
+    ProcessingWorker,
+    RetryNotAllowedError,
+)
 from app.services.project_service import upload_job_response
 
 from app.services.project_service import (
@@ -14,12 +21,19 @@ from app.services.project_service import (
     get_upload_job,
     validate_image_file,
 )
-from app.services.projects_service import create_project, get_project, list_projects
+from app.services.projects_service import (
+    create_project,
+    get_project,
+    list_projects,
+    project_processing_history,
+)
 from app.services.gis_features_service import (
     create_feature,
     delete_feature,
     get_feature,
     list_features,
+    ReviewTransitionError,
+    review_feature,
     update_feature,
 )
 
@@ -111,6 +125,23 @@ def upload_status(job_id: str, db: Session = Depends(get_db)):
     return job
 
 
+@router.post("/uploads/{job_id}/retry", tags=["uploads"])
+def retry_upload_processing(job_id: str, db: Session = Depends(get_db)):
+    """Retry an existing failed job through the established worker lifecycle."""
+    try:
+        ProcessingWorker().retry_job(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (RetryNotAllowedError, DuplicateProcessingError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except SQLAlchemyError as error:
+        raise HTTPException(status_code=500, detail="Could not retry processing.") from error
+    job = get_upload_job(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Upload job not found.")
+    return job
+
+
 @router.post("/projects", status_code=201, tags=["projects"])
 def create_project_endpoint(project: ProjectCreate, db: Session = Depends(get_db)):
     if not project.name.strip():
@@ -133,15 +164,10 @@ def project_lookup(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/uploads", tags=["projects"])
 def project_upload_history(project_id: str, db: Session = Depends(get_db)):
-    if not db.get(Project, project_id):
+    history = project_processing_history(db, project_id)
+    if history is None:
         raise HTTPException(status_code=404, detail="Project not found.")
-    jobs = (
-        db.query(UploadJob)
-        .filter(UploadJob.project_id == project_id)
-        .order_by(UploadJob.created_at.desc())
-        .all()
-    )
-    return [upload_job_response(job) for job in jobs]
+    return history
 
 
 @router.post("/features", status_code=201, tags=["features"])
@@ -175,8 +201,29 @@ def feature_lookup(feature_id: str, db: Session = Depends(get_db)):
 def feature_update(feature_id: str, changes: GISFeatureUpdate, db: Session = Depends(get_db)):
     try:
         feature = update_feature(db, feature_id, changes)
+    except ReviewTransitionError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Could not persist GIS feature changes.") from error
+    if not feature:
+        raise HTTPException(status_code=404, detail="GIS feature not found.")
+    return feature
+
+
+@router.patch("/features/{feature_id}/review", tags=["features"])
+def feature_review(feature_id: str, decision: str, db: Session = Depends(get_db)):
+    try:
+        feature = review_feature(db, feature_id, decision)
+    except ReviewTransitionError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Could not persist GIS feature review.") from error
     if not feature:
         raise HTTPException(status_code=404, detail="GIS feature not found.")
     return feature

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.db.database import SessionLocal, engine, init_db
-from app.db.models import Project, UploadJob
+from app.db.models import GISFeature, Project, UploadJob
 from app.main import app
 
 
@@ -11,6 +11,7 @@ client = TestClient(app)
 def setup_function():
     init_db()
     with SessionLocal() as db:
+        db.query(GISFeature).delete()
         db.query(UploadJob).delete()
         db.query(Project).delete()
         db.commit()
@@ -124,7 +125,80 @@ def test_upload_can_be_linked_to_project_and_appears_in_history():
     assert detail["status"] == "created"
     assert detail["upload_summary"]["queued"] == 1
     history = client.get(f"/api/projects/{project['project_id']}/uploads").json()
-    assert history == [created]
+    assert history[0] == created | {"feature_count": 0}
+
+
+def test_project_history_includes_processing_metadata_and_feature_count():
+    project = client.post("/api/projects", json={"name": "History project"}).json()
+    job = client.post(
+        "/api/uploads/drone-image",
+        data={"project_name": "History project", "project_id": project["project_id"]},
+        files={"file": ("history.png", b"image", "image/png")},
+    ).json()
+    with SessionLocal() as db:
+        stored_job = db.get(UploadJob, job["job_id"])
+        stored_job.status = "failed"
+        stored_job.failure_reason = "Image could not be read."
+        stored_job.retry_count = 2
+        db.commit()
+
+    history = client.get(f"/api/projects/{project['project_id']}/uploads")
+
+    assert history.status_code == 200
+    item = history.json()[0]
+    assert item["status"] == "failed"
+    assert item["failure_reason"] == "Image could not be read."
+    assert item["retry_count"] == 2
+    assert item["feature_count"] == 0
+
+
+def test_empty_project_history_and_invalid_project():
+    project = client.post("/api/projects", json={"name": "Empty history"}).json()
+
+    assert client.get(f"/api/projects/{project['project_id']}/uploads").json() == []
+    assert client.get("/api/projects/not-a-project/uploads").status_code == 404
+
+
+def test_project_history_counts_persisted_features_for_its_upload():
+    project = client.post("/api/projects", json={"name": "Feature history"}).json()
+    job = client.post(
+        "/api/uploads/drone-image",
+        data={"project_name": "Feature history", "project_id": project["project_id"]},
+        files={"file": ("feature.png", b"image", "image/png")},
+    ).json()
+    feature = client.post("/api/features", json={
+        "project_id": project["project_id"], "upload_job_id": job["job_id"], "feature_type": "building",
+        "geometry": {"type": "Polygon", "coordinates": [[[77, 12], [77.01, 12], [77.01, 12.01], [77, 12]]]},
+        "properties": {"source": "drone-ai"},
+    })
+
+    assert feature.status_code == 201
+    assert client.get(f"/api/projects/{project['project_id']}/uploads").json()[0]["feature_count"] == 1
+
+
+def test_retry_endpoint_rejects_jobs_that_have_not_failed():
+    job = client.post(
+        "/api/uploads/drone-image", data={"project_name": "Retry"},
+        files={"file": ("retry.png", b"image", "image/png")},
+    ).json()
+
+    assert client.post(f"/api/uploads/{job['job_id']}/retry").status_code == 409
+
+
+def test_retry_endpoint_uses_existing_worker_and_increments_retry_count():
+    job = client.post(
+        "/api/uploads/drone-image", data={"project_name": "Retry"},
+        files={"file": ("retry.png", b"not a valid image", "image/png")},
+    ).json()
+    with SessionLocal() as db:
+        db.get(UploadJob, job["job_id"]).status = "failed"
+        db.commit()
+
+    retried = client.post(f"/api/uploads/{job['job_id']}/retry")
+
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "failed"
+    assert retried.json()["retry_count"] == 1
 
 
 def test_approval_records_timestamp_and_publishes_linked_project():
